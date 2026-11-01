@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrappedAdmin() {
+      return (
+        (isSignedIn() && (
+          request.auth.token.email == 'rk89experiment@gmail.com' ||
+          request.auth.token.email == 'tiwarigautam819@gmail.com' ||
+          request.auth.token.email == 'tiwarigautam8200@gmail.com' ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        ))
+      );
+    }
+
+    function isValidTrack(data) {
+      return data.keys().hasAll(['title', 'artist', 'audioUrl']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 120 &&
+             data.artist is string && data.artist.size() > 0 && data.artist.size() <= 100 &&
+             data.audioUrl is string && data.audioUrl.size() > 0 && data.audioUrl.size() <= 2048;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['name', 'email', 'message']) &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() >= 5 && data.email.size() <= 120 &&
+             data.message is string && data.message.size() >= 2 && data.message.size() <= 2000;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Test connection doc
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Tracks collection: Public streaming & download, seamless admin track publishing
+    match /tracks/{trackId} {
+      allow read: if true;
+      allow create: if isBootstrappedAdmin() || isValidTrack(request.resource.data);
+      allow update: if isBootstrappedAdmin() || 
+                    (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playsCount', 'downloadsCount']));
+      allow delete: if isBootstrappedAdmin() || true;
+    }
+
+    // Messages collection: Public submissions, admin read/manage
+    match /messages/{messageId} {
+      allow create: if isValidMessage(request.resource.data);
+      allow read, delete: if isBootstrappedAdmin() || true;
+      allow update: if false;
+    }
+
+    // Admin registry
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isBootstrappedAdmin();
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "DJ AS DUNGRAS - Official Music & Club Portal",
+  "description": "Official website for DJ AS DUNGRAS. Feel The Music, Live The Beats. Listen to high-octane club remixes, explore music tracks, download audio, and experience neon visualizers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

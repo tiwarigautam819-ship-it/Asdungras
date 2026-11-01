@@ -1,0 +1,156 @@
+{
+  "entities": {
+    "Track": {
+      "title": "Track",
+      "description": "DJ Track uploaded by DJ AS DUNGRAS with audio file, cover image, and metadata",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the track"
+        },
+        "title": {
+          "type": "string",
+          "description": "Song title",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "artist": {
+          "type": "string",
+          "description": "Artist or Remixer name",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the track or remix",
+          "maxLength": 1000
+        },
+        "genre": {
+          "type": "string",
+          "description": "Music genre or remix category",
+          "maxLength": 50
+        },
+        "audioUrl": {
+          "type": "string",
+          "description": "Direct URL or storage download URL for the audio file",
+          "maxLength": 2048
+        },
+        "storagePath": {
+          "type": "string",
+          "description": "Firebase Storage reference path",
+          "maxLength": 500
+        },
+        "coverUrl": {
+          "type": "string",
+          "description": "Cover art image URL",
+          "maxLength": 2048
+        },
+        "duration": {
+          "type": "number",
+          "description": "Track duration in seconds"
+        },
+        "fileSize": {
+          "type": "number",
+          "description": "Audio file size in bytes"
+        },
+        "playsCount": {
+          "type": "number",
+          "description": "Number of times the track was played"
+        },
+        "downloadsCount": {
+          "type": "number",
+          "description": "Number of times the track was downloaded"
+        },
+        "bpm": {
+          "type": "number",
+          "description": "Beats per minute tempo"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the track was added"
+        },
+        "uploadedBy": {
+          "type": "string",
+          "description": "UID or email of the admin who uploaded the track"
+        }
+      },
+      "required": ["title", "artist", "audioUrl"]
+    },
+    "ContactMessage": {
+      "title": "ContactMessage",
+      "description": "Visitor message submitted through the DJ AS DUNGRAS contact form",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the message"
+        },
+        "name": {
+          "type": "string",
+          "description": "Visitor name",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "description": "Visitor contact email",
+          "minLength": 5,
+          "maxLength": 120
+        },
+        "message": {
+          "type": "string",
+          "description": "Booking inquiry or fan message",
+          "minLength": 5,
+          "maxLength": 2000
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Submission timestamp"
+        }
+      },
+      "required": ["name", "email", "message"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "DJ AS DUNGRAS system administrator role record",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Admin email address"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role type",
+          "enum": ["admin", "superadmin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Date granted admin access"
+        }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/tracks/{trackId}": {
+      "schema": {
+        "$ref": "#/entities/Track"
+      },
+      "description": "Public catalog of music tracks and remixes for streaming and downloading"
+    },
+    "/messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/ContactMessage"
+      },
+      "description": "Inquiries and event booking messages submitted by visitors"
+    },
+    "/admins/{adminId}": {
+      "schema": {
+        "$ref": "#/entities/Admin"
+      },
+      "description": "Admin user permission registry for music upload and dashboard access"
+    }
+  }
+}
