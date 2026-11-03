@@ -8,16 +8,14 @@ import {
   VolumeX, 
   Download, 
   Repeat, 
-  Shuffle, 
   Maximize2, 
   Minimize2,
-  Disc3,
-  Flame,
-  Activity
+  Activity,
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { Track } from '../types';
 import { Visualizer } from './Visualizer';
-import { getTrackDownloadUrl, getTrackDownloadFilename } from '../utils/driveHelper';
 
 interface AudioPlayerProps {
   currentTrack: Track | null;
@@ -44,11 +42,24 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState<number>(() => currentTrack?.duration || 180);
   const [volume, setVolume] = useState(0.85);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoop, setIsLoop] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [hasPlaybackError, setHasPlaybackError] = useState(false);
+
+  // Sync duration with track data whenever currentTrack changes
+  useEffect(() => {
+    if (currentTrack) {
+      const initialDur = currentTrack.duration && currentTrack.duration > 0 ? currentTrack.duration : 180;
+      setDuration(initialDur);
+      setCurrentTime(0);
+      setHasPlaybackError(false);
+      setIsBuffering(false);
+    }
+  }, [currentTrack]);
 
   // Sync isPlaying with HTML5 audio
   useEffect(() => {
@@ -59,7 +70,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          console.warn('Auto-play was prevented by browser policy:', err);
+          console.warn('Auto-play notice:', err);
         });
       }
     } else {
@@ -92,8 +103,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
       const dur = audioRef.current.duration;
-      setDuration(dur);
-      if (onTrackLoaded) onTrackLoaded(dur);
+      if (dur && !isNaN(dur) && dur > 0) {
+        setDuration(dur);
+        if (onTrackLoaded) onTrackLoaded(dur);
+      }
     }
   };
 
@@ -106,24 +119,54 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const formatTime = (timeInSeconds: number) => {
-    if (isNaN(timeInSeconds)) return '0:00';
+    if (isNaN(timeInSeconds) || timeInSeconds < 0) return '0:00';
     const minutes = Math.floor(timeInSeconds / 60);
     const seconds = Math.floor(timeInSeconds % 60);
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
+  const retryPlayback = () => {
+    setHasPlaybackError(false);
+    setIsBuffering(true);
+    if (audioRef.current) {
+      audioRef.current.load();
+      audioRef.current.play().catch(() => {});
+    }
+  };
+
   if (!currentTrack) return null;
+
+  const effectiveDuration = duration || currentTrack.duration || 180;
 
   return (
     <>
       {/* Hidden Native Audio Element */}
       <audio
         ref={audioRef}
+        key={currentTrack.id}
         src={currentTrack.audioUrl}
-        preload="metadata"
+        preload="auto"
+        crossOrigin="anonymous"
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
+        onCanPlay={() => {
+          setIsBuffering(false);
+          if (audioRef.current?.duration && !isNaN(audioRef.current.duration) && audioRef.current.duration > 0) {
+            setDuration(audioRef.current.duration);
+          }
+        }}
+        onWaiting={() => setIsBuffering(true)}
+        onPlaying={() => {
+          setIsBuffering(false);
+          setHasPlaybackError(false);
+        }}
         onEnded={onEnded}
+        onError={(e) => {
+          const err = e.currentTarget.error;
+          console.warn('Audio playback notice:', err?.code, err?.message);
+          setIsBuffering(false);
+          setHasPlaybackError(true);
+        }}
       />
 
       {/* Fullscreen Expanded Visualizer Spotlight Modal */}
@@ -139,7 +182,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             </div>
             <button
               onClick={() => setIsExpanded(false)}
-              className="p-3 rounded-full bg-black/60 border border-white/20 text-white hover:text-pink-400 hover:border-pink-500 transition"
+              className="p-3 rounded-full bg-black/60 border border-white/20 text-white hover:text-pink-400 hover:border-pink-500 transition cursor-pointer"
             >
               <Minimize2 className="w-5 h-5" />
             </button>
@@ -199,19 +242,19 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               <input
                 type="range"
                 min="0"
-                max={duration || 100}
+                max={effectiveDuration}
                 value={currentTime}
                 onChange={handleSeek}
                 className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
               />
-              <span>{formatTime(duration)}</span>
+              <span>{formatTime(effectiveDuration)}</span>
             </div>
 
             {/* Actions */}
             <div className="flex items-center justify-center gap-6">
               <button
                 onClick={() => setIsLoop(!isLoop)}
-                className={`p-3 rounded-full transition ${
+                className={`p-3 rounded-full transition cursor-pointer ${
                   isLoop ? 'text-pink-400 bg-pink-950/40 border border-pink-500/40' : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -220,21 +263,27 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
               <button
                 onClick={onPrev}
-                className="p-3 rounded-full text-gray-300 hover:text-white hover:bg-white/10 transition"
+                className="p-3 rounded-full text-gray-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 <SkipBack className="w-6 h-6" />
               </button>
 
               <button
                 onClick={onTogglePlay}
-                className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-400 to-pink-500 text-black flex items-center justify-center shadow-[0_0_30px_rgba(0,240,255,0.8)] hover:scale-105 active:scale-95 transition"
+                className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-400 to-pink-500 text-black flex items-center justify-center shadow-[0_0_30px_rgba(0,240,255,0.8)] hover:scale-105 active:scale-95 transition cursor-pointer"
               >
-                {isPlaying ? <Pause className="w-7 h-7 fill-black" /> : <Play className="w-7 h-7 fill-black ml-1" />}
+                {isBuffering ? (
+                  <Loader2 className="w-7 h-7 animate-spin text-black" />
+                ) : isPlaying ? (
+                  <Pause className="w-7 h-7 fill-black" />
+                ) : (
+                  <Play className="w-7 h-7 fill-black ml-1" />
+                )}
               </button>
 
               <button
                 onClick={onNext}
-                className="p-3 rounded-full text-gray-300 hover:text-white hover:bg-white/10 transition"
+                className="p-3 rounded-full text-gray-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 <SkipForward className="w-6 h-6" />
               </button>
@@ -262,7 +311,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         <div className="absolute -top-1 left-0 right-0 h-1 bg-black group cursor-pointer">
           <div
             className="h-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 relative transition-all duration-100"
-            style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+            style={{ width: `${effectiveDuration ? (currentTime / effectiveDuration) * 100 : 0}%` }}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-[0_0_8px_#00f0ff] opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
@@ -303,7 +352,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               {/* Loop */}
               <button
                 onClick={() => setIsLoop(!isLoop)}
-                className={`hidden sm:block p-1.5 rounded-md transition ${
+                className={`hidden sm:block p-1.5 rounded-md transition cursor-pointer ${
                   isLoop ? 'text-pink-400 bg-pink-950/40' : 'text-gray-400 hover:text-white'
                 }`}
                 title="Toggle Repeat"
@@ -314,7 +363,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               {/* Prev */}
               <button
                 onClick={onPrev}
-                className="p-1.5 text-gray-300 hover:text-white transition active:scale-90"
+                className="p-1.5 text-gray-300 hover:text-white transition active:scale-90 cursor-pointer"
                 title="Previous Track"
               >
                 <SkipBack className="w-4 h-4" />
@@ -323,25 +372,43 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               {/* Main Play/Pause Button */}
               <button
                 onClick={onTogglePlay}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-cyan-400 to-pink-500 text-black flex items-center justify-center shadow-[0_0_15px_rgba(0,240,255,0.7)] hover:shadow-[0_0_25px_rgba(0,240,255,0.9)] hover:scale-105 active:scale-95 transition"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-cyan-400 to-pink-500 text-black flex items-center justify-center shadow-[0_0_15px_rgba(0,240,255,0.7)] hover:shadow-[0_0_25px_rgba(0,240,255,0.9)] hover:scale-105 active:scale-95 transition cursor-pointer"
                 title={isPlaying ? 'Pause' : 'Play'}
               >
-                {isPlaying ? <Pause className="w-4 h-4 fill-black" /> : <Play className="w-4 h-4 fill-black ml-0.5" />}
+                {isBuffering ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-black" />
+                ) : isPlaying ? (
+                  <Pause className="w-4 h-4 fill-black" />
+                ) : (
+                  <Play className="w-4 h-4 fill-black ml-0.5" />
+                )}
               </button>
 
               {/* Next */}
               <button
                 onClick={onNext}
-                className="p-1.5 text-gray-300 hover:text-white transition active:scale-90"
+                className="p-1.5 text-gray-300 hover:text-white transition active:scale-90 cursor-pointer"
                 title="Next Track"
               >
                 <SkipForward className="w-4 h-4" />
               </button>
 
+              {/* Retry on Error */}
+              {hasPlaybackError && (
+                <button
+                  onClick={retryPlayback}
+                  className="p-1.5 text-amber-400 hover:text-amber-300 transition cursor-pointer flex items-center gap-1 text-[10px] font-mono"
+                  title="Retry Stream"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Retry</span>
+                </button>
+              )}
+
               {/* Spotlight Expand */}
               <button
                 onClick={() => setIsExpanded(true)}
-                className="hidden sm:block p-1.5 text-cyan-400 hover:text-cyan-300 transition"
+                className="hidden sm:block p-1.5 text-cyan-400 hover:text-cyan-300 transition cursor-pointer"
                 title="Expand Visualizer"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
@@ -354,12 +421,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               <input
                 type="range"
                 min="0"
-                max={duration || 100}
+                max={effectiveDuration}
                 value={currentTime}
                 onChange={handleSeek}
                 className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-cyan-400 hover:accent-pink-400"
               />
-              <span className="w-8">{formatTime(duration)}</span>
+              <span className="w-8">{formatTime(effectiveDuration)}</span>
             </div>
           </div>
 
@@ -369,7 +436,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             <div className="hidden md:flex items-center gap-2">
               <button
                 onClick={() => setIsMuted(!isMuted)}
-                className="text-gray-400 hover:text-white transition"
+                className="text-gray-400 hover:text-white transition cursor-pointer"
               >
                 {isMuted || volume === 0 ? (
                   <VolumeX className="w-4 h-4 text-red-400" />

@@ -7,11 +7,16 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// Ensure uploads folder exists
+// Target audio storage directories to ensure survival across dev and production containers
 const uploadsDir = path.resolve(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const publicUploadsDir = path.resolve(process.cwd(), 'public/uploads');
+const distUploadsDir = path.resolve(process.cwd(), 'dist/uploads');
+
+[uploadsDir, publicUploadsDir].forEach((dir) => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
 
 // Configure multer storage
 const storage = multer.diskStorage({
@@ -34,29 +39,80 @@ const upload = multer({
 
 app.use(express.json());
 
-// Serve uploaded audio and images with audio streaming Range support
-app.use(
-  '/uploads',
-  express.static(uploadsDir, {
-    setHeaders: (res, filePath) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Accept-Ranges', 'bytes');
-      if (filePath.endsWith('.mp3')) {
-        res.setHeader('Content-Type', 'audio/mpeg');
-      } else if (filePath.endsWith('.wav')) {
-        res.setHeader('Content-Type', 'audio/wav');
-      } else if (filePath.endsWith('.ogg')) {
-        res.setHeader('Content-Type', 'audio/ogg');
-      } else if (filePath.endsWith('.m4a')) {
-        res.setHeader('Content-Type', 'audio/mp4');
-      }
-    },
-  })
-);
+// Helper function to find audio file across all candidate directories
+function findAudioFile(filename: string): string | null {
+  if (!filename) return null;
+  const safeName = path.basename(filename.split('?')[0]);
+  const candidateDirs = [uploadsDir, publicUploadsDir, distUploadsDir];
 
-// Upload API endpoint
+  for (const dir of candidateDirs) {
+    const fullPath = path.join(dir, safeName);
+    if (fs.existsSync(fullPath)) {
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.size > 1000) {
+          return fullPath;
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return null;
+}
+
+// Helper function to persist audio file across all storage locations
+async function saveAudioToAllUploads(filename: string, buffer: Buffer): Promise<void> {
+  const safeName = path.basename(filename);
+  const targets = [uploadsDir, publicUploadsDir, distUploadsDir];
+  for (const dir of targets) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const targetPath = path.join(dir, safeName);
+      await fs.promises.writeFile(targetPath, buffer);
+    } catch (e) {
+      // ignore
+    }
+  }
+}
+
+// Serve uploaded audio files with strict 404s and 206 Range partial content support
+app.get('/uploads/:filename', (req: Request, res: Response): void => {
+  const filename = req.params.filename;
+  const filePath = findAudioFile(filename);
+
+  if (filePath && fs.existsSync(filePath)) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    if (filePath.endsWith('.mp3')) {
+      res.setHeader('Content-Type', 'audio/mpeg');
+    } else if (filePath.endsWith('.wav')) {
+      res.setHeader('Content-Type', 'audio/wav');
+    } else if (filePath.endsWith('.ogg')) {
+      res.setHeader('Content-Type', 'audio/ogg');
+    } else if (filePath.endsWith('.m4a')) {
+      res.setHeader('Content-Type', 'audio/mp4');
+    } else {
+      res.setHeader('Content-Type', 'audio/mpeg');
+    }
+
+    res.sendFile(filePath, { acceptRanges: true });
+    return;
+  }
+
+  // CRITICAL: Return 404 JSON for missing audio, NEVER fall through to HTML index.html
+  res.status(404).json({ error: 'Audio file not found on server' });
+});
+
+// Upload API endpoint: saves to uploadsDir and syncs to public/uploads
 app.post('/api/upload', (req: Request, res: Response): void => {
-  upload.single('file')(req, res, (err: any) => {
+  upload.single('file')(req, res, async (err: any) => {
     if (err) {
       console.error('Upload middleware error:', err);
       res.status(400).json({ error: err.message || 'File upload error' });
@@ -65,6 +121,20 @@ app.post('/api/upload', (req: Request, res: Response): void => {
     if (!req.file) {
       res.status(400).json({ error: 'No file provided in request' });
       return;
+    }
+
+    // Mirror to public/uploads and dist/uploads to survive rebuilds & shared hosting
+    try {
+      const srcPath = path.join(uploadsDir, req.file.filename);
+      const publicPath = path.join(publicUploadsDir, req.file.filename);
+      await fs.promises.copyFile(srcPath, publicPath);
+
+      if (fs.existsSync(distUploadsDir)) {
+        const distPath = path.join(distUploadsDir, req.file.filename);
+        await fs.promises.copyFile(srcPath, distPath);
+      }
+    } catch (copyErr) {
+      console.warn('Upload mirror note:', copyErr);
     }
 
     const fileUrl = `/uploads/${req.file.filename}`;
@@ -79,20 +149,27 @@ app.post('/api/upload', (req: Request, res: Response): void => {
 });
 
 // Delete uploaded file endpoint to support physical cleanup on track deletion
-app.post('/api/delete-file', (req: Request, res: Response): void => {
+app.post('/api/delete-file', async (req: Request, res: Response): Promise<void> => {
   try {
     const { filename, url } = req.body || {};
     let targetFile = filename;
     if (!targetFile && url && typeof url === 'string' && url.includes('/uploads/')) {
-      targetFile = url.split('/uploads/').pop();
+      targetFile = url.split('/uploads/').pop()?.split('?')[0];
     }
     if (targetFile) {
       const safeName = path.basename(targetFile);
-      const filePath = path.join(uploadsDir, safeName);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log(`Deleted uploaded file: ${safeName}`);
+      const targets = [uploadsDir, publicUploadsDir, distUploadsDir];
+      for (const dir of targets) {
+        const filePath = path.join(dir, safeName);
+        if (fs.existsSync(filePath)) {
+          try {
+            await fs.promises.unlink(filePath);
+          } catch {
+            // ignore
+          }
+        }
       }
+      console.log(`Deleted uploaded file across storage: ${safeName}`);
     }
     res.json({ success: true });
   } catch (err: any) {
@@ -104,18 +181,9 @@ app.post('/api/delete-file', (req: Request, res: Response): void => {
 // Helper function to resolve or download Google Drive file into uploads cache
 async function getOrFetchDriveFile(fileId: string): Promise<string | null> {
   const cachedFilename = `drive_${fileId}.mp3`;
-  const cachedPath = path.join(uploadsDir, cachedFilename);
-
-  // If already cached and valid size (> 2000 bytes)
-  if (fs.existsSync(cachedPath)) {
-    try {
-      const stat = fs.statSync(cachedPath);
-      if (stat.size > 2000) {
-        return cachedPath;
-      }
-    } catch {
-      // ignore
-    }
+  const existingPath = findAudioFile(cachedFilename);
+  if (existingPath) {
+    return existingPath;
   }
 
   // Fetch from Google Drive with redirect follow
@@ -133,8 +201,9 @@ async function getOrFetchDriveFile(fileId: string): Promise<string | null> {
       const arrayBuf = await res.arrayBuffer();
       // Verify it's real binary audio (greater than 2KB, not an HTML error)
       if (arrayBuf.byteLength > 2000) {
-        await fs.promises.writeFile(cachedPath, Buffer.from(arrayBuf));
-        return cachedPath;
+        const buffer = Buffer.from(arrayBuf);
+        await saveAudioToAllUploads(cachedFilename, buffer);
+        return path.join(uploadsDir, cachedFilename);
       }
     }
   } catch (err) {
@@ -144,24 +213,73 @@ async function getOrFetchDriveFile(fileId: string): Promise<string | null> {
   return null;
 }
 
-// Google Drive Stream Proxy endpoint: streams audio for player and visualizer
+// Google Drive Stream Proxy endpoint: streams audio for player and visualizer with Range support
 app.get('/api/drive-stream/:id', async (req: Request, res: Response): Promise<void> => {
   const fileId = req.params.id;
   if (!fileId) {
-    res.status(400).send('File ID required');
+    res.status(400).json({ error: 'File ID required' });
     return;
   }
 
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const localPath = await getOrFetchDriveFile(fileId);
-  if (localPath && fs.existsSync(localPath)) {
-    res.sendFile(localPath);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type');
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+
+  // 1. Check if already cached in any uploads folder
+  const cachedFilename = `drive_${fileId}.mp3`;
+  const existingLocalPath = findAudioFile(cachedFilename);
+  if (existingLocalPath && fs.existsSync(existingLocalPath)) {
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.sendFile(existingLocalPath, { acceptRanges: true });
     return;
   }
 
-  // Fallback 302 redirect directly to Google Drive export
-  const directDriveUrl = `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
-  res.redirect(302, directDriveUrl);
+  // 2. Fetch directly from Google Drive stream without redirecting the browser
+  // (Direct 302 redirect triggers Cross-Origin-Resource-Policy same-site block in browser audio elements)
+  try {
+    const driveUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+    const fetchHeaders: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    };
+    if (req.headers.range) {
+      fetchHeaders['Range'] = req.headers.range as string;
+    }
+
+    const driveRes = await fetch(driveUrl, {
+      headers: fetchHeaders,
+      redirect: 'follow',
+    });
+
+    if (driveRes.ok) {
+      res.status(driveRes.status);
+      res.setHeader('Content-Type', 'audio/mpeg');
+      const cLength = driveRes.headers.get('content-length');
+      if (cLength) res.setHeader('Content-Length', cLength);
+      const cRange = driveRes.headers.get('content-range');
+      if (cRange) res.setHeader('Content-Range', cRange);
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      const arrayBuf = await driveRes.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
+
+      res.send(buffer);
+
+      // Save complete file to local caches for subsequent instant requests
+      if (!req.headers.range && buffer.byteLength > 2000) {
+        saveAudioToAllUploads(cachedFilename, buffer).catch((err) =>
+          console.warn('Async cache note:', err)
+        );
+      }
+      return;
+    }
+  } catch (err) {
+    console.error('Error proxying Drive stream:', err);
+  }
+
+  res.status(502).json({ error: 'Unable to stream audio from Google Drive' });
 });
 
 app.options('/api/download', (_req: Request, res: Response) => {
@@ -179,9 +297,9 @@ app.get('/api/raw-download/:filename', (req: Request, res: Response): void => {
   res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, Content-Type');
 
   const filename = path.basename(req.params.filename || '');
-  const localPath = path.join(uploadsDir, filename);
+  const localPath = findAudioFile(filename);
 
-  if (fs.existsSync(localPath)) {
+  if (localPath && fs.existsSync(localPath)) {
     const stat = fs.statSync(localPath);
     const safeTitle = (req.query.title as string) || filename;
     const cleanTitle = safeTitle.replace(/[^a-zA-Z0-9\s-_()]/g, '').trim() || 'Track';
@@ -200,7 +318,7 @@ app.get('/api/raw-download/:filename', (req: Request, res: Response): void => {
     const stream = fs.createReadStream(localPath);
     stream.pipe(res);
   } else {
-    res.status(404).send('Audio file not found on server');
+    res.status(404).json({ error: 'Audio file not found on server' });
   }
 });
 
@@ -236,8 +354,8 @@ app.get('/api/download', async (req: Request, res: Response): Promise<void> => {
 
   for (const candidate of candidateNames) {
     if (!candidate) continue;
-    const localPath = path.join(uploadsDir, candidate);
-    if (fs.existsSync(localPath)) {
+    const localPath = findAudioFile(candidate);
+    if (localPath && fs.existsSync(localPath)) {
       const stat = fs.statSync(localPath);
       if (stat.size > 0) {
         res.setHeader('Content-Type', 'audio/mpeg');
@@ -257,7 +375,7 @@ app.get('/api/download', async (req: Request, res: Response): Promise<void> => {
   }
 
   if (!targetUrl && !storagePath) {
-    res.status(400).send('Missing url or storagePath parameter');
+    res.status(400).json({ error: 'Missing url or storagePath parameter' });
     return;
   }
 
@@ -287,7 +405,7 @@ app.get('/api/download', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Fallback: direct streaming from Drive
+    // Direct proxy streaming with attachment header
     try {
       const driveUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
       const driveRes = await fetch(driveUrl, {
@@ -297,28 +415,23 @@ app.get('/api/download', async (req: Request, res: Response): Promise<void> => {
         },
         redirect: 'follow',
       });
-      if (driveRes.ok && driveRes.body) {
+      if (driveRes.ok) {
         res.setHeader(
           'Content-Disposition',
           `attachment; filename="${filename}"; filename*=UTF-8''${encodedName}`
         );
         res.setHeader('Content-Type', 'audio/mpeg');
-        // @ts-ignore
-        const reader = driveRes.body.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(value);
-        }
-        res.end();
+        const cLength = driveRes.headers.get('content-length');
+        if (cLength) res.setHeader('Content-Length', cLength);
+        const arrayBuf = await driveRes.arrayBuffer();
+        res.send(Buffer.from(arrayBuf));
         return;
       }
     } catch (e) {
       console.warn('Fallback stream note:', e);
     }
 
-    // Final fallback redirect
-    res.redirect(302, `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`);
+    res.status(502).json({ error: 'Failed to retrieve Drive audio for download' });
     return;
   }
 
@@ -342,23 +455,17 @@ app.get('/api/download', async (req: Request, res: Response): Promise<void> => {
       res.setHeader('Content-Length', cLength);
     }
 
-    if (remoteRes.body) {
-      // @ts-ignore
-      const reader = remoteRes.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(value);
-      }
-      res.end();
-    } else {
-      const arrayBuf = await remoteRes.arrayBuffer();
-      res.send(Buffer.from(arrayBuf));
-    }
+    const arrayBuf = await remoteRes.arrayBuffer();
+    res.send(Buffer.from(arrayBuf));
   } catch (err) {
     console.error('Download proxy error:', err);
-    res.status(500).send('Download error');
+    res.status(500).json({ error: 'Download proxy failed' });
   }
+});
+
+// Explicit 404 for unrecognized API routes so they NEVER fall through to index.html
+app.all('/api/*', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'API endpoint not found' });
 });
 
 // Vite Middleware for Development / Static files for Production
@@ -378,7 +485,7 @@ async function startServer() {
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
   }
