@@ -116,6 +116,39 @@ export const Hero: React.FC<HeroProps> = ({
       </div>
 
       <div className="max-w-5xl mx-auto w-full text-center relative z-10 flex flex-col items-center">
+        {/* Official Circular DJ Logo Showcase */}
+        <div className="relative mb-6 group cursor-pointer" onClick={onTogglePlay} title="Click to play / pause">
+          {/* Outer Pulsing Sound Aura */}
+          <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-cyan-500 via-purple-600 to-pink-500 opacity-30 blur-2xl group-hover:opacity-60 transition duration-700 animate-pulse" />
+          
+          {/* Turntable Vinyl Outer Rim */}
+          <div className="relative w-36 h-36 sm:w-44 sm:h-44 md:w-52 md:h-52 rounded-full p-2 bg-gradient-to-tr from-cyan-500 via-fuchsia-500 to-pink-500 shadow-[0_0_40px_rgba(0,240,255,0.5),0_0_80px_rgba(255,0,128,0.3)] group-hover:shadow-[0_0_60px_rgba(0,240,255,0.8),0_0_100px_rgba(255,0,128,0.5)] transition-all duration-500">
+            {/* Spinning Vinyl Plate */}
+            <div
+              className={`w-full h-full rounded-full bg-black p-1 flex items-center justify-center overflow-hidden border-2 border-white/20 ${
+                isPlaying ? 'animate-spin [animation-duration:12s]' : ''
+              }`}
+            >
+              <img
+                src="/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg"
+                alt="DJ AS DUNGRAS Music Production Official Logo"
+                className="w-full h-full object-cover rounded-full select-none"
+              />
+            </div>
+            
+            {/* Center Spindle Accent Ring */}
+            <div className="absolute inset-0 m-auto w-4 h-4 rounded-full bg-cyan-400 shadow-[0_0_10px_#00f0ff] border-2 border-black pointer-events-none" />
+          </div>
+
+          {/* Playing Status Pill */}
+          <div className="absolute -bottom-2 inset-x-0 flex justify-center pointer-events-none">
+            <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-black/90 border border-cyan-400/60 text-[10px] sm:text-xs font-mono font-bold tracking-widest text-cyan-300 uppercase shadow-lg">
+              <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-400 animate-ping' : 'bg-cyan-400'}`} />
+              {isPlaying ? 'ON AIR' : 'DJ AS DUNGRAS'}
+            </span>
+          </div>
+        </div>
+
         {/* Live Badge */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-cyan-950/80 via-black to-purple-950/80 border border-cyan-500/40 text-cyan-300 text-xs sm:text-sm font-semibold tracking-widest uppercase mb-6 shadow-[0_0_15px_rgba(0,240,255,0.3)] animate-pulse">
           <Zap className="w-4 h-4 text-yellow-400 fill-yellow-400" />

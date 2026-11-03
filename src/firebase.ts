@@ -31,6 +31,7 @@ import {
 } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Track, ContactMessage } from './types';
+import { removeAudioBlob } from './audioStorage';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -122,10 +123,10 @@ export async function loginWithAdminCredentials(email: string, pass: string): Pr
   const cleanEmail = email.trim().toLowerCase();
   
   if (!ADMIN_EMAILS.includes(cleanEmail)) {
-    throw new Error(`Unauthorized email. Administrator email must be ${ADMIN_EMAILS[0]}`);
+    throw new Error('Access denied. This email is not authorized for artist administration.');
   }
   if (pass !== ADMIN_PASS) {
-    throw new Error('Incorrect admin password.');
+    throw new Error('Incorrect credentials. Please verify your password.');
   }
 
   // Attempt Firebase Auth Email/Password login or creation
@@ -288,27 +289,62 @@ export async function uploadMediaFile(
 export async function addTrack(trackData: Omit<Track, 'id'>): Promise<string> {
   const path = 'tracks';
   try {
-    const docRef = await addDoc(collection(db, path), trackData);
+    // Sanitize data: remove any undefined values which cause Firestore addDoc to reject
+    const sanitizedData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(trackData)) {
+      if (value !== undefined && !Number.isNaN(value)) {
+        sanitizedData[key] = value;
+      }
+    }
+    const docRef = await addDoc(collection(db, path), sanitizedData);
     return docRef.id;
   } catch (error) {
+    console.error('Failed to add track to Firestore:', error);
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
 
 // Delete track
-export async function deleteTrack(trackId: string, storagePath?: string): Promise<void> {
+export async function deleteTrack(trackId: string, storagePath?: string, audioUrl?: string): Promise<void> {
   const path = `tracks/${trackId}`;
   try {
+    // 1. Delete document from Firestore
     await deleteDoc(doc(db, 'tracks', trackId));
-    if (storagePath) {
+
+    // 2. Clean up IndexedDB if stored locally
+    try {
+      if (storagePath) {
+        await removeAudioBlob(storagePath);
+      }
+      await removeAudioBlob(trackId);
+    } catch (e) {
+      console.warn('IndexedDB cleanup note:', e);
+    }
+
+    // 3. Clean up server uploaded file if present
+    try {
+      if (storagePath || audioUrl) {
+        await fetch('/api/delete-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: storagePath, url: audioUrl }),
+        });
+      }
+    } catch (e) {
+      console.warn('Server file cleanup note:', e);
+    }
+
+    // 4. Clean up Firebase Storage if stored there
+    if (storagePath && !storagePath.startsWith('track_') && !storagePath.startsWith('drive_') && storagePath !== 'web_stream') {
       try {
         const fileRef = storageRef(storage, storagePath);
         await deleteObject(fileRef);
       } catch (storageErr) {
-        console.warn('Storage file deletion note:', storageErr);
+        console.warn('Firebase Storage deletion note:', storageErr);
       }
     }
   } catch (error) {
+    console.error('Delete track error in Firestore:', error);
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }

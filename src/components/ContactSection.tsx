@@ -278,18 +278,10 @@ export const ContactSection: React.FC = () => {
                 <div>
                   <h4 className="font-['Orbitron'] font-bold text-base text-white">WHATSAPP DIRECT</h4>
                   <p className="text-xs text-emerald-400 font-mono">
-                    {whatsappNumber ? `Number: ${whatsappNumber}` : 'Configurable phone connection'}
+                    {whatsappNumber ? `+91 ${whatsappNumber}` : 'Quick Booking & Inquiries'}
                   </p>
                 </div>
               </div>
-
-              <button
-                onClick={() => setShowPhoneConfig(!showPhoneConfig)}
-                title="Configure WhatsApp Phone Number"
-                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
             </div>
 
             <p className="text-gray-300 text-xs sm:text-sm mb-4 leading-relaxed">

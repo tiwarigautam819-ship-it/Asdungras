@@ -74,8 +74,11 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <div className="w-full h-full bg-black rounded-full flex items-center justify-center relative overflow-hidden">
-                <Disc3 className="w-6 h-6 text-cyan-400 group-hover:text-pink-400 transition-colors" />
-                <div className="absolute inset-0 bg-radial from-transparent to-black/60 pointer-events-none" />
+                <img
+                  src="/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg"
+                  alt="DJ AS DUNGRAS"
+                  className="w-full h-full object-cover rounded-full scale-105"
+                />
               </div>
             </div>
             {isPlaying && (
@@ -124,7 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
           })}
         </nav>
 
-        {/* Right Action: Admin / Live Playing */}
+        {/* Right Action: Live Playing / Authenticated Admin Controls */}
         <div className="hidden sm:flex items-center gap-3">
           {isPlaying && (
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-mono animate-pulse">
@@ -133,14 +136,14 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {user ? (
-            <div className="flex items-center gap-2">
+          {isAdmin && (
+            <div className="flex items-center gap-2 animate-in fade-in">
               <button
                 onClick={onOpenAdmin}
                 className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-purple-900/40 hover:bg-purple-800/60 border border-purple-500/50 text-purple-200 text-xs font-semibold tracking-wider transition shadow-[0_0_15px_rgba(176,38,255,0.3)] hover:shadow-[0_0_20px_rgba(176,38,255,0.6)]"
               >
                 <Shield className="w-3.5 h-3.5 text-purple-400" />
-                <span>{isAdmin ? 'DJ DASHBOARD' : 'ACCOUNT'}</span>
+                <span>DJ DASHBOARD</span>
               </button>
               <button
                 onClick={onLogout}
@@ -150,26 +153,20 @@ export const Header: React.FC<HeaderProps> = ({
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
-          ) : (
-            <button
-              onClick={onOpenAdmin}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600/30 to-purple-600/30 hover:from-cyan-500/50 hover:to-purple-500/50 border border-cyan-500/40 text-cyan-200 text-xs font-semibold tracking-wider transition shadow-[0_0_12px_rgba(0,240,255,0.3)] hover:shadow-[0_0_18px_rgba(0,240,255,0.6)]"
-            >
-              <Shield className="w-3.5 h-3.5 text-cyan-400" />
-              <span>ADMIN ACCESS</span>
-            </button>
           )}
         </div>
 
         {/* Mobile Menu Button with Animated Neon Glow */}
         <div className="flex sm:hidden items-center gap-2">
-          <button
-            onClick={onOpenAdmin}
-            aria-label="Admin access"
-            className="p-2 rounded-lg bg-cyan-950/40 border border-cyan-500/40 text-cyan-400"
-          >
-            <Shield className="w-4 h-4" />
-          </button>
+          {isAdmin && (
+            <button
+              onClick={onOpenAdmin}
+              aria-label="Admin dashboard"
+              className="p-2 rounded-lg bg-cyan-950/40 border border-cyan-500/40 text-cyan-400"
+            >
+              <Shield className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle navigation menu"
@@ -200,18 +197,18 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             ))}
 
-            <div className="pt-3 border-t border-white/10 flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onOpenAdmin();
-                }}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-bold text-center tracking-wider shadow-[0_0_15px_rgba(0,240,255,0.6)] flex items-center justify-center gap-2"
-              >
-                <Shield className="w-4 h-4" />
-                <span>{isAdmin ? 'ADMIN DASHBOARD' : 'ADMIN LOGIN'}</span>
-              </button>
-              {user && (
+            {isAdmin && (
+              <div className="pt-3 border-t border-white/10 flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenAdmin();
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 text-black font-bold text-center tracking-wider shadow-[0_0_15px_rgba(0,240,255,0.6)] flex items-center justify-center gap-2"
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>DJ DASHBOARD</span>
+                </button>
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
@@ -219,10 +216,10 @@ export const Header: React.FC<HeaderProps> = ({
                   }}
                   className="w-full py-2 px-4 rounded-xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs text-center font-semibold"
                 >
-                  Sign Out ({user.email})
+                  Sign Out ({user?.email || 'Admin'})
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}

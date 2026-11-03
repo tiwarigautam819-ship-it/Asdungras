@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Track } from '../types';
 import { Visualizer } from './Visualizer';
+import { getTrackDownloadUrl, getTrackDownloadFilename } from '../utils/driveHelper';
 
 interface AudioPlayerProps {
   currentTrack: Track | null;
@@ -155,16 +156,20 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 <img
                   src={
                     currentTrack.coverUrl ||
-                    'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=800&q=80'
+                    '/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg'
                   }
                   alt={currentTrack.title}
                   className="w-full h-full object-cover rounded-full border-4 border-black"
                 />
               </div>
 
-              {/* Center Vinyl Hole */}
-              <div className="absolute inset-0 m-auto w-12 h-12 bg-black rounded-full border-2 border-white/40 flex items-center justify-center pointer-events-none">
-                <Disc3 className="w-6 h-6 text-cyan-400" />
+              {/* Center Vinyl Spindle with Official Logo */}
+              <div className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black border-2 border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.8)] flex items-center justify-center overflow-hidden pointer-events-none">
+                <img
+                  src="/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg"
+                  alt="DJ AS DUNGRAS Logo"
+                  className="w-full h-full object-cover"
+                />
               </div>
             </div>
 
@@ -235,8 +240,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               </button>
 
               <button
-                onClick={() => onDownload(currentTrack)}
-                className="p-3 rounded-full text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition border border-emerald-500/30"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDownload(currentTrack);
+                }}
+                className="p-3 rounded-full text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/30 transition border border-emerald-500/30 cursor-pointer flex items-center justify-center"
+                title="Download Track"
               >
                 <Download className="w-5 h-5" />
               </button>
@@ -264,7 +275,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               <img
                 src={
                   currentTrack.coverUrl ||
-                  'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=800&q=80'
+                  '/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg'
                 }
                 alt={currentTrack.title}
                 className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg object-cover border border-cyan-500/40 shadow-[0_0_10px_rgba(0,240,255,0.4)] ${
@@ -382,8 +393,13 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
             {/* Quick Download in Player */}
             <button
-              onClick={() => onDownload(currentTrack)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-950/60 hover:bg-pink-900/80 border border-pink-500/40 text-pink-300 hover:text-white text-xs font-['Orbitron'] font-semibold tracking-wider shadow-[0_0_12px_rgba(255,0,128,0.3)] transition"
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDownload(currentTrack);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-950/60 hover:bg-pink-900/80 border border-pink-500/40 text-pink-300 hover:text-white text-xs font-['Orbitron'] font-semibold tracking-wider shadow-[0_0_12px_rgba(255,0,128,0.3)] transition cursor-pointer"
               title="Download Track"
             >
               <Download className="w-3.5 h-3.5 text-pink-400" />

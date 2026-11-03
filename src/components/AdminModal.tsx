@@ -17,7 +17,11 @@ import {
   Mail,
   Eye,
   EyeOff,
-  ExternalLink
+  ExternalLink,
+  HardDrive,
+  Link2,
+  Play,
+  Pause
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { 
@@ -31,6 +35,8 @@ import {
   subscribeToMessages 
 } from '../firebase';
 import { Track, ContactMessage } from '../types';
+import { storeAudioBlob } from '../audioStorage';
+import { convertDriveToStreamUrl, extractDriveFileId } from '../utils/driveHelper';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -54,8 +60,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [activeTab, setActiveTab] = useState<'upload' | 'manage' | 'messages'>('upload');
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   
-  // Login Form State
-  const [loginEmail, setLoginEmail] = useState('tiwarigautam819@gmail.com');
+  // Login Form State (Stealth: does not reveal email to viewers)
+  const [loginEmail, setLoginEmail] = useState(() => sessionStorage.getItem('djas_admin_email') || '');
   const [loginPass, setLoginPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
@@ -67,6 +73,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [bpm, setBpm] = useState<number>(128);
   const [description, setDescription] = useState('');
   
+  const [audioSourceType, setAudioSourceType] = useState<'drive' | 'file' | 'url'>('drive');
+  const [googleDriveUrl, setGoogleDriveUrl] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [directAudioUrl, setDirectAudioUrl] = useState('');
   const [audioDuration, setAudioDuration] = useState<number>(180);
@@ -77,9 +85,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Cover image presets
   const coverPresets = [
+    { name: 'Official DJ AS Logo', url: '/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg' },
     { name: 'Neon Laser Stage', url: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=800&q=80' },
     { name: 'Festival Beats', url: 'https://images.unsplash.com/photo-1571266028243-3716f02d2d2e?auto=format&fit=crop&w=800&q=80' },
     { name: 'Club Bass Arena', url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80' },
@@ -181,10 +191,28 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!audioFile && !directAudioUrl.trim()) {
-      setStatusMessage({ type: 'error', text: 'Please select an audio file (MP3, WAV, etc.) or enter an audio stream URL.' });
-      return;
+
+    if (audioSourceType === 'drive') {
+      const fileId = extractDriveFileId(googleDriveUrl);
+      if (!fileId) {
+        setStatusMessage({
+          type: 'error',
+          text: 'Please paste a valid Google Drive link (e.g. https://drive.google.com/file/d/FILE_ID/view).'
+        });
+        return;
+      }
+    } else if (audioSourceType === 'file') {
+      if (!audioFile) {
+        setStatusMessage({ type: 'error', text: 'Please select an audio file (MP3, WAV, etc.) to upload.' });
+        return;
+      }
+    } else {
+      if (!directAudioUrl.trim()) {
+        setStatusMessage({ type: 'error', text: 'Please enter an audio stream URL.' });
+        return;
+      }
     }
+
     if (!title.trim()) {
       setStatusMessage({ type: 'error', text: 'Please enter a song title.' });
       return;
@@ -195,44 +223,70 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setStatusMessage(null);
 
     try {
-      let finalAudioUrl = directAudioUrl.trim();
-      let audioStoragePath: string | undefined;
+      let finalAudioUrl = '';
+      let audioStoragePath = '';
 
-      // 1. Upload audio file if selected
-      if (audioFile) {
-        const audioResult = await uploadMediaFile(audioFile, 'audio', (prog) => {
-          setUploadProgress(10 + prog * 0.5);
-        });
-        finalAudioUrl = audioResult.url;
-        audioStoragePath = audioResult.storagePath;
+      // 1. Process Audio Source
+      if (audioSourceType === 'drive') {
+        const fileId = extractDriveFileId(googleDriveUrl)!;
+        finalAudioUrl = convertDriveToStreamUrl(googleDriveUrl);
+        audioStoragePath = `drive_${fileId}`;
+        setUploadProgress(50);
+      } else if (audioSourceType === 'file' && audioFile) {
+        try {
+          const audioResult = await uploadMediaFile(audioFile, 'audio', (prog) => {
+            setUploadProgress(10 + prog * 0.5);
+          });
+          finalAudioUrl = audioResult.url;
+          audioStoragePath = audioResult.storagePath || '';
+          if (audioResult.storagePath) {
+            try {
+              await storeAudioBlob(audioResult.storagePath, audioFile);
+            } catch {
+              // ignore
+            }
+          }
+        } catch (uploadErr) {
+          console.warn('Server upload not reachable, saving to browser audio vault:', uploadErr);
+          const fallbackTrackId = `track_${Date.now()}`;
+          finalAudioUrl = await storeAudioBlob(fallbackTrackId, audioFile);
+          audioStoragePath = fallbackTrackId;
+        }
+      } else {
+        finalAudioUrl = directAudioUrl.trim();
+        audioStoragePath = 'web_stream';
       }
 
       // 2. Upload cover artwork if custom file chosen
       let finalCoverUrl = coverUrlPreset || coverPresets[0].url;
-      let coverStoragePath: string | undefined;
+      let coverStoragePath = '';
 
       if (coverFile) {
-        const coverResult = await uploadMediaFile(coverFile, 'covers', (prog) => {
-          setUploadProgress(60 + prog * 0.3);
-        });
-        finalCoverUrl = coverResult.url;
-        coverStoragePath = coverResult.storagePath;
+        try {
+          const coverResult = await uploadMediaFile(coverFile, 'covers', (prog) => {
+            setUploadProgress(60 + prog * 0.3);
+          });
+          finalCoverUrl = coverResult.url;
+          coverStoragePath = coverResult.storagePath || '';
+        } catch (coverErr) {
+          console.warn('Cover upload note:', coverErr);
+        }
       }
 
       setUploadProgress(95);
 
-      // 3. Save track to Firestore
+      // 3. Save track to Firestore (guaranteeing no undefined values)
       await addTrack({
         title: title.trim(),
         artist: artist.trim() || 'DJ AS DUNGRAS',
         genre: genre.trim() || 'Club EDM',
         bpm: Number(bpm) || 128,
-        description: description.trim(),
+        description: description ? description.trim() : '',
         audioUrl: finalAudioUrl,
-        storagePath: audioStoragePath || coverStoragePath,
-        coverUrl: finalCoverUrl,
-        duration: audioDuration || 180,
-        fileSize: audioFile ? audioFile.size : 5000000,
+        storagePath: audioStoragePath || coverStoragePath || '',
+        coverUrl: finalCoverUrl || coverPresets[0].url,
+        duration: Number(audioDuration) || 180,
+        fileSize: audioFile ? Number(audioFile.size) : 5000000,
         playsCount: 0,
         downloadsCount: 0,
         createdAt: new Date().toISOString(),
@@ -242,7 +296,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setUploadProgress(100);
       setStatusMessage({
         type: 'success',
-        text: `Track "${title}" successfully uploaded and published to the live music vault!`
+        text: `Track "${title}" successfully published to the live music vault!`
       });
 
       // Reset form
@@ -253,11 +307,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setCoverFile(null);
       setCoverUrlPreset('');
       setUploadProgress(0);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Audio upload error:', err);
+      let errMsg = 'Audio upload error. Please check the file.';
+      if (typeof err === 'string') {
+        errMsg = err;
+      } else if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          errMsg = parsed.error || err.message;
+        } catch (e) {
+          errMsg = err.message;
+        }
+      }
       setStatusMessage({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Upload failed. Check file size or format.'
+        text: errMsg
       });
     } finally {
       setIsUploading(false);
@@ -265,19 +330,26 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   const handleDelete = async (track: Track) => {
-    if (!window.confirm(`Are you sure you want to permanently delete "${track.title}"?`)) {
-      return;
-    }
-
     setDeletingId(track.id);
     try {
-      await deleteTrack(track.id, track.storagePath);
+      await deleteTrack(track.id, track.storagePath, track.audioUrl);
       if (onTrackDeleted) onTrackDeleted(track.id);
-      setStatusMessage({ type: 'success', text: `Track "${track.title}" deleted.` });
-    } catch (err) {
+      setStatusMessage({ type: 'success', text: `Track "${track.title}" has been permanently deleted.` });
+      setConfirmDeleteId(null);
+    } catch (err: any) {
+      console.error('Track deletion error:', err);
+      let errMsg = 'Failed to delete track.';
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          errMsg = parsed.error || err.message;
+        } catch {
+          errMsg = err.message;
+        }
+      }
       setStatusMessage({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to delete track.'
+        text: `Deletion failed: ${errMsg}`
       });
     } finally {
       setDeletingId(null);
@@ -292,15 +364,21 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         {/* Top Header */}
         <div className="p-5 border-b border-white/10 flex items-center justify-between bg-black/60">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 text-black shadow-md">
-              <Shield className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-400 to-pink-500 p-[2px] shadow-[0_0_15px_rgba(0,240,255,0.6)] shrink-0 overflow-hidden">
+              <img
+                src="/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg"
+                alt="DJ AS Dungras Logo"
+                className="w-full h-full object-cover rounded-full"
+              />
             </div>
             <div>
               <h3 className="font-['Orbitron'] font-black text-lg text-white tracking-wider flex items-center gap-2">
-                DJ AS DUNGRAS <span className="text-cyan-400">ADMIN CONSOLE</span>
+                DJ AS DUNGRAS <span className="text-cyan-400">ARTIST PORTAL</span>
               </h3>
               <p className="text-xs text-gray-400 font-mono">
-                Admin: {ADMIN_EMAILS[0]}
+                {isAdmin
+                  ? `Authenticated: ${user?.email || sessionStorage.getItem('djas_admin_email') || 'DJ AS DUNGRAS'}`
+                  : 'Restricted Portal • Authorized Personnel Only'}
               </p>
             </div>
           </div>
@@ -334,17 +412,24 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         {/* Auth Check View */}
         {!isAdmin ? (
           <div className="p-6 sm:p-10 flex flex-col items-center justify-center my-auto overflow-y-auto">
-            <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-cyan-500 to-pink-500 p-0.5 mb-4 shadow-[0_0_20px_rgba(0,240,255,0.6)]">
-              <div className="w-full h-full bg-black rounded-full flex items-center justify-center">
-                <Lock className="w-7 h-7 text-cyan-400" />
+            <div className="relative mb-4">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-500 via-purple-600 to-pink-500 p-[2px] shadow-[0_0_25px_rgba(0,240,255,0.6)]">
+                <img
+                  src="/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg"
+                  alt="DJ AS DUNGRAS"
+                  className="w-full h-full object-cover rounded-full"
+                />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-black rounded-full border border-cyan-400 flex items-center justify-center shadow-lg">
+                <Lock className="w-3.5 h-3.5 text-cyan-400" />
               </div>
             </div>
 
             <h4 className="font-['Orbitron'] font-bold text-xl text-white mb-1">
-              ADMINISTRATOR LOGIN
+              ARTIST ACCESS CONTROL
             </h4>
             <p className="text-gray-400 text-xs sm:text-sm max-w-md text-center mb-6">
-              Enter your official DJ credentials to access audio uploads and library controls.
+              Enter your authorized DJ credentials to unlock audio uploads and library controls.
             </p>
 
             {/* Email & Password Login Form */}
@@ -360,7 +445,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     required
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="tiwarigautam819@gmail.com"
+                    placeholder="Enter authorized email"
                     className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-black/70 border border-white/20 focus:border-cyan-400 focus:outline-none text-sm text-white font-mono"
                   />
                 </div>
@@ -541,48 +626,124 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     />
                   </div>
 
-                  {/* Audio File or URL Input */}
-                  <div className="p-4 rounded-xl border border-dashed border-cyan-500/50 bg-cyan-950/10 space-y-3">
-                    <div>
-                      <label className="block text-xs font-mono uppercase text-cyan-300 mb-2 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
-                          <FileAudio className="w-4 h-4 text-cyan-400" />
-                          <span>1. Select Audio File (MP3, WAV, OGG, M4A)</span>
-                        </span>
-                        {audioFile && (
-                          <span className="text-emerald-400 text-[11px] font-bold">
-                            ✓ READY ({(audioFile.size / (1024 * 1024)).toFixed(2)} MB)
-                          </span>
-                        )}
-                      </label>
-                      <input
-                        type="file"
-                        accept="audio/*,.mp3,.wav,.ogg,.m4a"
-                        onChange={handleAudioFileChange}
-                        className="block w-full text-xs text-gray-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-500 file:text-black hover:file:bg-cyan-400 file:cursor-pointer cursor-pointer"
-                      />
-                      {audioFile && (
-                        <p className="mt-1.5 text-xs text-cyan-300 font-mono">
-                          Selected: {audioFile.name} • Duration: ~{audioDuration}s
-                        </p>
-                      )}
+                  {/* Audio Source Selector */}
+                  <div className="p-4 rounded-xl border border-cyan-500/40 bg-cyan-950/20 space-y-3">
+                    <label className="block text-xs font-mono uppercase text-cyan-300 font-bold">
+                      Audio Source *
+                    </label>
+
+                    {/* Source Selection Buttons */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAudioSourceType('drive')}
+                        className={`py-2 px-3 rounded-lg text-xs font-['Orbitron'] font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition ${
+                          audioSourceType === 'drive'
+                            ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black font-bold shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                            : 'bg-black/60 text-gray-400 border border-white/10 hover:text-white'
+                        }`}
+                      >
+                        <HardDrive className="w-3.5 h-3.5" />
+                        <span>Google Drive</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAudioSourceType('file')}
+                        className={`py-2 px-3 rounded-lg text-xs font-['Orbitron'] font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition ${
+                          audioSourceType === 'file'
+                            ? 'bg-gradient-to-r from-cyan-400 to-purple-500 text-black font-bold shadow-[0_0_15px_rgba(0,240,255,0.5)]'
+                            : 'bg-black/60 text-gray-400 border border-white/10 hover:text-white'
+                        }`}
+                      >
+                        <FileAudio className="w-3.5 h-3.5" />
+                        <span>Device File</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAudioSourceType('url')}
+                        className={`py-2 px-3 rounded-lg text-xs font-['Orbitron'] font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition ${
+                          audioSourceType === 'url'
+                            ? 'bg-gradient-to-r from-pink-400 to-purple-500 text-black font-bold shadow-[0_0_15px_rgba(255,0,128,0.5)]'
+                            : 'bg-black/60 text-gray-400 border border-white/10 hover:text-white'
+                        }`}
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                        <span>Direct URL</span>
+                      </button>
                     </div>
 
-                    <div className="pt-2 border-t border-white/10">
-                      <label className="block text-[11px] font-mono uppercase text-gray-400 mb-1">
-                        OR 2. Paste Direct Audio URL (Optional alternative)
-                      </label>
-                      <input
-                        type="url"
-                        value={directAudioUrl}
-                        onChange={(e) => {
-                          setDirectAudioUrl(e.target.value);
-                          if (e.target.value) setAudioFile(null);
-                        }}
-                        placeholder="https://example.com/track.mp3"
-                        className="w-full px-3 py-1.5 rounded-lg bg-black/60 border border-white/15 focus:border-cyan-400 focus:outline-none text-xs text-white"
-                      />
-                    </div>
+                    {/* SOURCE 1: GOOGLE DRIVE LINK */}
+                    {audioSourceType === 'drive' && (
+                      <div className="pt-2 space-y-2">
+                        <label className="block text-[11px] font-mono uppercase text-emerald-300">
+                          Paste Google Drive Audio Link (Sharable Link)
+                        </label>
+                        <input
+                          type="url"
+                          required
+                          value={googleDriveUrl}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setGoogleDriveUrl(val);
+                            const id = extractDriveFileId(val);
+                            if (id && !title) {
+                              setTitle('DJ AS DUNGRAS - Drive Remix');
+                            }
+                          }}
+                          placeholder="https://drive.google.com/file/d/1A2B3C4D.../view?usp=sharing"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black/70 border border-emerald-500/40 focus:border-emerald-400 focus:outline-none text-xs text-white font-mono shadow-inner"
+                        />
+
+                        {extractDriveFileId(googleDriveUrl) ? (
+                          <div className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono flex items-center justify-between">
+                            <span>✓ Google Drive ID: {extractDriveFileId(googleDriveUrl)}</span>
+                            <span className="text-[10px] text-cyan-400">Ready to Stream & Download</span>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-gray-400 font-mono leading-relaxed">
+                            💡 Tip: Google Drive me audio file par right-click karke <span className="text-cyan-300 font-bold">Share → Anyone with the link</span> set karein, fir link yahan paste karein.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* SOURCE 2: DEVICE FILE */}
+                    {audioSourceType === 'file' && (
+                      <div className="pt-2 space-y-2">
+                        <label className="block text-[11px] font-mono uppercase text-cyan-300">
+                          Select Audio File From Phone / PC (MP3, WAV, OGG, M4A)
+                        </label>
+                        <input
+                          type="file"
+                          accept="audio/*,.mp3,.wav,.ogg,.m4a"
+                          onChange={handleAudioFileChange}
+                          className="block w-full text-xs text-gray-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-500 file:text-black hover:file:bg-cyan-400 file:cursor-pointer cursor-pointer"
+                        />
+                        {audioFile && (
+                          <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-[11px] text-cyan-300 font-mono">
+                            ✓ {audioFile.name} ({(audioFile.size / (1024 * 1024)).toFixed(2)} MB) • ~{audioDuration}s
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* SOURCE 3: DIRECT WEB LINK */}
+                    {audioSourceType === 'url' && (
+                      <div className="pt-2 space-y-2">
+                        <label className="block text-[11px] font-mono uppercase text-pink-300">
+                          Direct Audio Stream URL (.mp3 / .wav link)
+                        </label>
+                        <input
+                          type="url"
+                          value={directAudioUrl}
+                          onChange={(e) => setDirectAudioUrl(e.target.value)}
+                          placeholder="https://example.com/music/track.mp3"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black/70 border border-pink-500/40 focus:border-pink-400 focus:outline-none text-xs text-white font-mono shadow-inner"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Cover Artwork */}
@@ -699,18 +860,36 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           >
                             <ExternalLink className="w-4 h-4" />
                           </a>
-                          <button
-                            onClick={() => handleDelete(track)}
-                            disabled={deletingId === track.id}
-                            className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-500/30 transition disabled:opacity-50"
-                            title="Delete track"
-                          >
-                            {deletingId === track.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
+                          {confirmDeleteId === track.id ? (
+                            <div className="flex items-center gap-1.5 animate-in fade-in">
+                              <button
+                                onClick={() => handleDelete(track)}
+                                disabled={deletingId === track.id}
+                                className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold font-mono shadow-[0_0_12px_rgba(255,0,0,0.8)] flex items-center gap-1 transition disabled:opacity-50"
+                              >
+                                {deletingId === track.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                                <span>DELETE NOW</span>
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 text-xs font-mono transition"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(track.id)}
+                              className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-500/30 hover:border-red-500 transition"
+                              title="Delete track permanently"
+                            >
                               <Trash2 className="w-4 h-4" />
-                            )}
-                          </button>
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))

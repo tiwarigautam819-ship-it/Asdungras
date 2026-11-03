@@ -57,6 +57,21 @@ export const AboutSection: React.FC<AboutSectionProps> = ({ isPlaying }) => {
               </div>
             </div>
           </div>
+
+          {/* Floating Official Studio Production Badge */}
+          <div className="absolute -bottom-5 -left-2 sm:bottom-4 sm:-left-6 p-3 rounded-2xl bg-[#0c0c14]/95 border border-cyan-500/40 shadow-[0_0_25px_rgba(0,240,255,0.4)] backdrop-blur-md flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full ring-2 ring-cyan-400 overflow-hidden shadow-lg shrink-0">
+              <img
+                src="/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg"
+                alt="DJ AS Dungras Logo"
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div>
+              <p className="font-['Orbitron'] font-bold text-xs text-cyan-300">DJ AS DUNGRAS</p>
+              <p className="text-[10px] font-mono text-gray-400">Music Production</p>
+            </div>
+          </div>
         </div>
 
         {/* Right Column: Bio & Philosophy */}

@@ -12,9 +12,11 @@ import {
   Activity, 
   Sparkles,
   Share2,
-  Check
+  Check,
+  Trash2
 } from 'lucide-react';
 import { Track } from '../types';
+import { getTrackDownloadUrl, getTrackDownloadFilename } from '../utils/driveHelper';
 
 interface MusicSectionProps {
   tracks: Track[];
@@ -24,6 +26,7 @@ interface MusicSectionProps {
   onDownloadTrack: (track: Track) => void;
   onOpenUpload: () => void;
   isAdmin: boolean;
+  onDeleteTrack?: (track: Track) => void;
 }
 
 export const MusicSection: React.FC<MusicSectionProps> = ({
@@ -33,11 +36,13 @@ export const MusicSection: React.FC<MusicSectionProps> = ({
   onPlayTrack,
   onDownloadTrack,
   onOpenUpload,
-  isAdmin
+  isAdmin,
+  onDeleteTrack
 }) => {
   const [selectedGenre, setSelectedGenre] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [confirmDeleteTrackId, setConfirmDeleteTrackId] = useState<string | null>(null);
 
   const genres = ['All', 'Club EDM', 'Desi Dhol Bass', 'Bollywood Remix', 'Electro House', 'Festival Trap'];
 
@@ -85,16 +90,18 @@ export const MusicSection: React.FC<MusicSectionProps> = ({
           </p>
         </div>
 
-        {/* Action button: Upload new audio */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onOpenUpload}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-400 hover:to-purple-500 text-white font-['Orbitron'] font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(255,0,128,0.5)] hover:shadow-[0_0_30px_rgba(255,0,128,0.8)] transition-all hover:scale-105 active:scale-95"
-          >
-            <Upload className="w-4 h-4" />
-            <span>{isAdmin ? 'UPLOAD NEW TRACK' : 'SUBMIT / UPLOAD AUDIO'}</span>
-          </button>
-        </div>
+        {/* Action button: Upload new audio (Visible ONLY to verified Admin) */}
+        {isAdmin && (
+          <div className="flex items-center gap-3 animate-in fade-in">
+            <button
+              onClick={onOpenUpload}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-400 hover:to-purple-500 text-white font-['Orbitron'] font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(255,0,128,0.5)] hover:shadow-[0_0_30px_rgba(255,0,128,0.8)] transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <span>UPLOAD NEW TRACK</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Filters and Search Bar */}
@@ -140,22 +147,32 @@ export const MusicSection: React.FC<MusicSectionProps> = ({
       {/* Tracks Grid or Empty Vault State */}
       {filteredTracks.length === 0 ? (
         <div className="py-20 px-4 text-center bg-black/40 rounded-3xl border border-cyan-500/20 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.8)] flex flex-col items-center justify-center">
-          <div className="w-16 h-16 rounded-full bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4 shadow-[0_0_20px_rgba(0,240,255,0.3)]">
-            <Disc className="w-8 h-8 animate-spin [animation-duration:8s]" />
+          <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-500 via-purple-600 to-pink-500 p-[2px] mb-4 shadow-[0_0_25px_rgba(0,240,255,0.4)]">
+            <div className="w-full h-full bg-black rounded-full overflow-hidden flex items-center justify-center">
+              <img
+                src="/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg"
+                alt="DJ AS DUNGRAS"
+                className="w-full h-full object-cover scale-105"
+              />
+            </div>
           </div>
           <h3 className="font-['Orbitron'] font-black text-xl sm:text-2xl text-white uppercase tracking-wider mb-2">
             MUSIC VAULT IS READY
           </h3>
           <p className="text-gray-400 text-sm max-w-md mx-auto mb-6 leading-relaxed">
-            All fake data removed. The music library is clean and awaiting genuine audio tracks from DJ AS DUNGRAS.
+            {isAdmin 
+              ? 'The music library is ready for genuine audio tracks from DJ AS DUNGRAS.'
+              : 'Exclusive DJ mixes and festival club edits releasing soon. Stay tuned!'}
           </p>
-          <button
-            onClick={onOpenUpload}
-            className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-cyan-400 to-pink-500 text-black font-['Orbitron'] font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(0,240,255,0.7)] hover:shadow-[0_0_30px_rgba(0,240,255,0.9)] hover:scale-105 active:scale-95 transition flex items-center gap-2"
-          >
-            <Upload className="w-4 h-4" />
-            <span>UPLOAD REAL AUDIO (MP3 / WAV)</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={onOpenUpload}
+              className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-cyan-400 to-pink-500 text-black font-['Orbitron'] font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(0,240,255,0.7)] hover:shadow-[0_0_30px_rgba(0,240,255,0.9)] hover:scale-105 active:scale-95 transition flex items-center gap-2 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <span>UPLOAD REAL AUDIO (MP3 / WAV)</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -187,7 +204,7 @@ export const MusicSection: React.FC<MusicSectionProps> = ({
                     <img
                       src={
                         track.coverUrl ||
-                        'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=800&q=80'
+                        '/assets/aistudio/IMG-20261102-WA0001_2da96bcd.jpg'
                       }
                       alt={track.title}
                       className={`w-full h-full object-cover transition-transform duration-700 ${
@@ -280,38 +297,89 @@ export const MusicSection: React.FC<MusicSectionProps> = ({
                 </div>
 
                 {/* Bottom Action Footer */}
-                <div className="px-5 py-3.5 bg-black/40 border-t border-white/5 flex items-center justify-between gap-2">
-                  <button
-                    onClick={() => onPlayTrack(track)}
-                    className="flex-1 py-2 px-3 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 text-xs font-['Orbitron'] font-semibold tracking-wider transition flex items-center justify-center gap-1.5"
-                  >
-                    {isCurrentPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                    <span>{isCurrentPlaying ? 'PAUSE' : 'PLAY'}</span>
-                  </button>
+                {confirmDeleteTrackId === track.id ? (
+                  <div className="px-4 py-3 bg-red-950/95 border-t border-red-500/60 flex items-center justify-between gap-2 animate-in fade-in">
+                    <span className="text-[11px] font-mono text-red-200 font-semibold truncate">
+                      Delete permanently?
+                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onDeleteTrack) onDeleteTrack(track);
+                          setConfirmDeleteTrackId(null);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-['Orbitron'] font-bold tracking-wider uppercase shadow-[0_0_12px_rgba(255,0,0,0.8)] transition cursor-pointer"
+                      >
+                        YES, DELETE
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmDeleteTrackId(null);
+                        }}
+                        className="px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 text-[10px] font-mono transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="px-5 py-3.5 bg-black/40 border-t border-white/5 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => onPlayTrack(track)}
+                      className="flex-1 py-2 px-3 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 text-xs font-['Orbitron'] font-semibold tracking-wider transition flex items-center justify-center gap-1.5"
+                    >
+                      {isCurrentPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                      <span>{isCurrentPlaying ? 'PAUSE' : 'PLAY'}</span>
+                    </button>
 
-                  {/* Real Download Button */}
-                  <button
-                    onClick={() => onDownloadTrack(track)}
-                    title="Download high quality audio"
-                    className="py-2 px-3.5 rounded-lg bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/40 hover:border-pink-400 text-pink-300 hover:text-pink-200 text-xs font-['Orbitron'] font-semibold tracking-wider transition shadow-[0_0_10px_rgba(255,0,128,0.2)] hover:shadow-[0_0_15px_rgba(255,0,128,0.5)] flex items-center gap-1.5"
-                  >
-                    <Download className="w-3.5 h-3.5 text-pink-400" />
-                    <span>DOWNLOAD</span>
-                  </button>
+                    {/* Clean Download Button triggering download manager */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onDownloadTrack(track);
+                      }}
+                      title="Download high quality audio"
+                      className="py-2 px-3.5 rounded-lg bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/40 hover:border-pink-400 text-pink-300 hover:text-pink-200 text-xs font-['Orbitron'] font-semibold tracking-wider transition shadow-[0_0_10px_rgba(255,0,128,0.2)] hover:shadow-[0_0_15px_rgba(255,0,128,0.5)] flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-pink-400" />
+                      <span>DOWNLOAD</span>
+                    </button>
 
-                  {/* Quick Share Link */}
-                  <button
-                    onClick={(e) => handleShare(track, e)}
-                    title="Copy share link"
-                    className="p-2 rounded-lg bg-black/60 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition"
-                  >
-                    {copiedId === track.id ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Share2 className="w-3.5 h-3.5" />
+                    {/* Quick Share Link */}
+                    <button
+                      onClick={(e) => handleShare(track, e)}
+                      title="Copy share link"
+                      className="p-2 rounded-lg bg-black/60 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition"
+                    >
+                      {copiedId === track.id ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Share2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {/* Admin Direct Delete Button */}
+                    {isAdmin && onDeleteTrack && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmDeleteTrackId(track.id);
+                        }}
+                        title="Admin: Delete uploaded track"
+                        className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 hover:border-red-500 text-red-400 hover:text-red-300 transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
-                  </button>
-                </div>
+                  </div>
+                )}
               </div>
             );
           })}
